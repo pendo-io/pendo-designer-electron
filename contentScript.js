@@ -9,22 +9,24 @@ let designerWindow;
 exports.use = function (app) {
     app.on('browser-window-created', (event, browserWindow) => {
         if (browserWindow.getTitle().indexOf('Pendo') === -1) {
-            initPendo(browserWindow);
+            initPendo(app, browserWindow);
         }
     });
 };
 
-function initPendo (customerWindow) {
+function initPendo (app, customerWindow) {
     customerWindow.webContents.on('did-finish-load', () => {
     //    ipcMain.on('start_designer', (event, message) => {
         if (!designerWindow) {
+            const pendoDir = __dirname.substring(app.getAppPath().length + 1, __dirname.length);
+
             customerWindow.webContents.executeJavaScript(`  
                   window.ipcRenderer = require('electron').ipcRenderer;
             const id = 'pendo-designer-plugin-script';
             if (!document.getElementById(id)) {
                 const agentPostmessageScript = document.createElement('script');
                 agentPostmessageScript.setAttribute('id', id);
-                agentPostmessageScript.src = "pendo/build/plugin.js";
+                agentPostmessageScript.src = "${pendoDir}/build/plugin.js";
                 document.body.appendChild(agentPostmessageScript);
             }     
         `);
