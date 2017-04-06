@@ -35,12 +35,16 @@ function addAgentPostMessageScriptToWindow (customerWindow, pendoDir) {
 }
 
 function addDesignerToCustomerWindow (customerWindow, options) {
+    const {height} = require('electron').screen.getPrimaryDisplay().workAreaSize;
     const designerWindowOptions = {
+        x: 0,
+        y: 0,
         width: 370,
         minWidth: 370,
-        height: 840,
+        maxWidth: 370,
+        minHeight: 700,
+        height: height,
         title: 'Pendo Designer',
-        parent: customerWindow,
         partition: 'persist:pendo'
     };
 
@@ -54,14 +58,14 @@ function addDesignerToCustomerWindow (customerWindow, options) {
     if (options.debug) {
         designerWindow.webContents.openDevTools();
     }
-
+    customerWindow.setPosition(designerWindowOptions.width, customerWindow.getPosition()[1]);
     return designerWindow;
 }
 
 function addLoginWindowToDesigner (designerWindow) {
     const loginViewOptions = {
         width: 1070,
-        minWidth: 370,
+        resizable: false,
         height: 840,
         title: 'Login to Pendo Designer',
         parent: designerWindow,
@@ -80,14 +84,14 @@ function addLoginWindowToDesigner (designerWindow) {
 
     // When logging in for the first time, we get a real navigation event
     loginWindow.webContents.on('did-navigate', (event, url) => {
-        if(url === dashboardURL) {
+        if (url === dashboardURL) {
             loginWindow.hide();
         }
     });
 
     // When already logged in, we get an in-page redirect from app.pendo
     loginWindow.webContents.on('did-navigate-in-page', (event, url) => {
-        if(url === dashboardURL) {
+        if (url === dashboardURL) {
             loginWindow.hide();
         }
     });
@@ -108,7 +112,7 @@ function initPendo (app, customerWindow) {
         const ipcMessageBus = (event, message) => {
             switch (message.destination) {
                 case sources.designer:
-                    if(!designerWindow) return console.warn("Designer window does not exist");
+                    if (!designerWindow) return console.warn('Designer window does not exist');
                     sendMessageToBrowserWindow(designerWindow, message);
                     break;
                 case sources.plugin:
@@ -153,7 +157,7 @@ function initPendo (app, customerWindow) {
 
             designerWindow.on('closed', (event) => {
                 designerWindow = null;
-                ipcMain.removeListener('pendo-designer-message', ipcMessageBus)
+                ipcMain.removeListener('pendo-designer-message', ipcMessageBus);
             });
         });
     });
