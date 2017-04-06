@@ -1,0 +1,20 @@
+<html>
+    <body ng-csp>
+        <!--
+        we need to make sure the app doesn't bootstrap to the same element that
+        we add ui-view to. This is because ngAnimate will only animate elements inside
+        of the angular application, but if we use ui-view on the root app element, then
+        the root element gets transcluded by ui-router and causes nganimate to think
+        nothing is inside the angular app.
+        -->
+        <div ui-view="app"></div>
+        <div ui-view="overlay"></div>
+        <script>
+            if(window.process.versions.electron){
+                  window.ipcRenderer = require('electron').ipcRenderer;
+              }
+        </script>
+        <script src="build/vendor.bundle.js"></script>
+        <script src="build/app.bundle.js"></script>
+    </body>
+</html>
