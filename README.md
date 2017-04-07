@@ -9,7 +9,7 @@ Have `read` access to
 
     npm install --save 'git+ssh://git@github.com:pendo-io/pendo-designer-electron.git'
     
-In the main electrion file:
+In the main electron file:
 
 
  
