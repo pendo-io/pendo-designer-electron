@@ -1,6 +1,7 @@
 const { ipcMain, BrowserWindow } = require('electron');
 const path = require('path');
 const sources = require('./build/sources');
+const version = require('./package.json').version;
 
 const MESSAGE_SOURCE_CONTENT_SCRIPT = 'pendo-designer-content-script';
 
@@ -133,6 +134,12 @@ function initPendo (app, customerWindow) {
             addAgentPostMessageScriptToWindow(customerWindow, pendoDir);
 
             designerWindow = addDesignerToCustomerWindow(customerWindow, options);
+
+            ipcMain.once('pendo-electron-version', (event)=>{
+                event.returnValue = {
+                    version
+                };
+            });
 
             ipcMain.once('pendo-designer-env', (event, message) => {
                 pendoHost = message.host;
