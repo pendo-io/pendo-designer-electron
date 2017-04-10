@@ -150,6 +150,10 @@ function initPendo (app, customerWindow) {
                 addLoginWindowToDesigner(designerWindow);
             });
 
+            ipcMain.once('pendo-electron-app-name', (event) => {
+                event.returnValue = app.getName();
+            });
+
             ipcMain.on('pendo-designer-message', ipcMessageBus);
 
             sendMessageToBrowserWindow(customerWindow, {
