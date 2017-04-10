@@ -107,6 +107,12 @@ function sendMessageToBrowserWindow (browserWindow, messageObj) {
 }
 
 function initPendo (app, customerWindow) {
+
+    customerWindow.on('close', ()=>{
+        designerWindow.close();
+    });
+
+
     customerWindow.webContents.on('did-finish-load', () => {
         addLaunchDesignerFnToWindow(customerWindow);
 
