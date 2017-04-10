@@ -43,7 +43,7 @@ function addDesignerToCustomerWindow (customerWindow, options) {
         width: 370,
         minWidth: 370,
         maxWidth: 370,
-        minHeight: 700,
+        minHeight: 730,
         height: height,
         title: 'Pendo Designer',
         partition: 'persist:pendo'
