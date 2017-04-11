@@ -1,5 +1,5 @@
 {
   "name": "pendo-electron",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "main": "contentScript.js"
 }
