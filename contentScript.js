@@ -2,7 +2,8 @@ const { ipcMain, BrowserWindow } = require('electron');
 const path = require('path');
 const sources = require('./build/sources');
 const version = require('./package.json').version;
-
+const DEV_MODE = process.env.DEV_MODE;
+const REMOTE_HOST = process.env.REMOTE_HOST;
 const MESSAGE_SOURCE_CONTENT_SCRIPT = 'pendo-designer-content-script';
 
 let designerWindow;
@@ -14,8 +15,17 @@ function addLaunchDesignerFnToWindow (customerWindow) {
             if(!window.ipcRenderer) {
                 window.ipcRenderer = require('electron').ipcRenderer;
             }
-            window.ipcRenderer.send('pendo-start-designer', { debug: !!debug });
+            window.ipcRenderer.send('pendo-start-designer', { debug: !!debug});
         };
+    `);
+}
+
+function addPendoAgentDetection (customerWindow) {
+    customerWindow.webContents.executeJavaScript(`
+        if(!window.ipcRenderer) {
+            window.ipcRenderer = require('electron').ipcRenderer;
+        }
+        window.ipcRenderer.send('pendo-agent-detect', { host: window.pendo.HOST, version: window.pendo.VERSION});
     `);
 }
 
@@ -43,18 +53,39 @@ function addDesignerToCustomerWindow (customerWindow, options) {
         width: 370,
         minWidth: 370,
         maxWidth: 370,
-        minHeight: 730,
+        minHeight: 700,
         height: height,
         title: 'Pendo Designer',
-        partition: 'persist:pendo'
+        partition: 'persist:pendo',
+        plugins: true
     };
 
     if (options.debug) {
         designerWindowOptions.width = 1070;
     }
 
+    if (DEV_MODE) {
+        const {session} = require('electron');
+        const PENDO_HOST = options.host;
+        session.defaultSession.webRequest.onBeforeRequest(['https://*/designer/latest', 'https://*/designer/latest/*'], function (details, callback) {
+            const url = details.url;
+            if (url.match(/designer\/latest/)) {
+                const substring = details.url.substring(details.url.lastIndexOf('/') + 1);
+                const redirectURL = `${REMOTE_HOST}/${substring}`;
+                console.log('redirecting', details.url, 'to', redirectURL)
+                return callback({redirectURL});
+            }
+            callback({});
+        });
+    }
+
     const designerWindow = new BrowserWindow(designerWindowOptions);
-    designerWindow.loadURL(path.join('file://', __dirname, '/designer.html'));
+    designerWindow.webContents.on('dom-ready',() => {
+        if (DEV_MODE) {
+            designerWindow.webContents.executeJavaScript(`window.PENDO_MODE="dev";`);
+        }
+    });
+    designerWindow.loadURL(`${options.host}/designer/latest/designer.html`);
 
     if (options.debug) {
         designerWindow.webContents.openDevTools();
@@ -107,14 +138,9 @@ function sendMessageToBrowserWindow (browserWindow, messageObj) {
 }
 
 function initPendo (app, customerWindow) {
-    customerWindow.on('close', () => {
-        if (designerWindow) {
-            designerWindow.close();
-        }
-    });
-
     customerWindow.webContents.on('did-finish-load', () => {
         addLaunchDesignerFnToWindow(customerWindow);
+        addPendoAgentDetection(customerWindow);
 
         const ipcMessageBus = (event, message) => {
             switch (message.destination) {
@@ -133,57 +159,83 @@ function initPendo (app, customerWindow) {
             addLoginWindowToDesigner(designerWindow);
         });
 
+        let pendoOptions;
+        // can't start the designer until we recevie the host informaiton of the
+        // agent
+        ipcMain.once('pendo-agent-detect', (event, options) => {
+            console.log('[Pendo] Detected agent', options);
+            pendoOptions = options;
+        });
+
         ipcMain.on('pendo-start-designer', (event, options) => {
-            if (designerWindow) designerWindow.close();
+                if (!pendoOptions) {
+                    console.error('[Pendo] Cannot start designer, no agent detected');
+                    return;
+                }
+                console.log('[Pendo] Using agent environment', pendoOptions)
 
-            const pendoDir = __dirname.substring(app.getAppPath().length + 1, __dirname.length);
-            addAgentPostMessageScriptToWindow(customerWindow, pendoDir);
+                if (designerWindow) designerWindow.close();
 
-            designerWindow = addDesignerToCustomerWindow(customerWindow, options);
+                const pendoDir = __dirname.substring(app.getAppPath().length + 1, __dirname.length);
+                addAgentPostMessageScriptToWindow(customerWindow, pendoDir);
 
-            ipcMain.once('pendo-electron-version', (event)=>{
-                event.returnValue = {
-                    version
-                };
-            });
+                designerWindow = addDesignerToCustomerWindow(customerWindow, Object.assign({}, pendoOptions, options));
 
-            ipcMain.once('pendo-designer-env', (event, message) => {
-                pendoHost = message.host;
-                addLoginWindowToDesigner(designerWindow);
-            });
+                ipcMain.once('pendo-electron-version', (event)=>{
+                    event.returnValue = {
+                        version
+                    };
+                });
 
-            ipcMain.once('pendo-electron-app-name', (event) => {
-                event.returnValue = app.getName();
-            });
+                ipcMain.once('pendo-designer-env', (event, message) => {
+                    pendoHost = message.host;
+                    addLoginWindowToDesigner(designerWindow);
+                });
 
-            ipcMain.on('pendo-designer-message', ipcMessageBus);
+                ipcMain.once('pendo-electron-app-name', (event)=>{
+                    event.returnValue = app.getName();
+                });
 
-            sendMessageToBrowserWindow(customerWindow, {
-                type: 'connect',
-                source: MESSAGE_SOURCE_CONTENT_SCRIPT,
-                destination: 'pendo-designer-agent'
-            });
+                ipcMain.on('pendo-designer-message', ipcMessageBus);
 
-            designerWindow.on('close', (event) => {
-                sendMessageToBrowserWindow(designerWindow, {
-                    type: 'unload',
+                sendMessageToBrowserWindow(customerWindow, {
+                    type: 'connect',
                     source: MESSAGE_SOURCE_CONTENT_SCRIPT,
-                    destination: 'pendo-designer'
+                    destination: 'pendo-designer-agent'
+                });
+
+                designerWindow.on('close', (event) => {
+                    sendMessageToBrowserWindow(designerWindow, {
+                        type: 'unload',
+                        source: MESSAGE_SOURCE_CONTENT_SCRIPT,
+                        destination: 'pendo-designer'
+                    });
+                });
+
+                designerWindow.on('closed', (event) => {
+                    designerWindow = null;
+                    ipcMain.removeListener('pendo-designer-message', ipcMessageBus);
                 });
             });
 
-            designerWindow.on('closed', (event) => {
-                designerWindow = null;
-                ipcMain.removeListener('pendo-designer-message', ipcMessageBus);
-            });
-        });
     });
 };
 
 exports.use = function (app) {
+
     app.on('browser-window-created', (event, browserWindow) => {
         if (browserWindow.getTitle().indexOf('Pendo') === -1) {
             initPendo(app, browserWindow);
         }
     });
+
+    if (DEV_MODE ) {
+        app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {
+            if (url.match(/localhost:8080/)) {
+                event.preventDefault();
+                callback(true)
+            }
+        });
+    }
+
 };
