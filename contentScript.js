@@ -74,7 +74,7 @@ function addDesignerToCustomerWindow (customerWindow, options) {
             if (url.match(/designer\/latest/)) {
                 const substring = details.url.substring(details.url.lastIndexOf('/') + 1);
                 const redirectURL = `${REMOTE_HOST}/${substring}`;
-                console.log('redirecting', details.url, 'to', redirectURL)
+                console.info('redirecting', details.url, 'to', redirectURL)
                 return callback({redirectURL});
             }
             callback({});
@@ -183,7 +183,9 @@ function initPendo (app, customerWindow) {
 
         // confgiure the listener before we add the logic to detect the agent
         ipcMain.once('pendo-agent-detect', (event, options) => {
-            console.log('[Pendo] Detected agent', options);
+            if (DEV_MODE) {
+                console.info('[Pendo] Detected agent', options);
+            }
             pendoOptions = options;
             getRemoteSources((remoteSource)=> {
                 sources = remoteSource;
@@ -197,7 +199,9 @@ function initPendo (app, customerWindow) {
                     console.error('[Pendo] Cannot start designer, no agent detected');
                     return;
                 }
-                console.log('[Pendo] Using agent environment', pendoOptions)
+                if (DEV_MODE) {
+                    console.info('[Pendo] Using agent environment', pendoOptions)
+                }
 
                 if (designerWindow) designerWindow.close();
 
