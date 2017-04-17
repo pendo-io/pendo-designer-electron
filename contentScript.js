@@ -144,7 +144,7 @@ function getRemoteSources (cb, host) {
         process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
     }
 
-    return https.get(`https://localhost:8080/sources.js`, (response) => {
+    return https.get(`${host}/designer/latest/sources.js`, (response) => {
         // Continuously update stream with data
         var body = '';
         response.on('data', function(d) {
