@@ -1,6 +1,8 @@
 const { ipcMain, BrowserWindow } = require('electron');
 const path = require('path');
-const sources = require('./build/sources');
+const https = require('https');
+const m = require('module');
+const vm = require('vm');
 const version = require('./package.json').version;
 const DEV_MODE = process.env.DEV_MODE;
 const REMOTE_HOST = process.env.REMOTE_HOST;
@@ -29,7 +31,7 @@ function addPendoAgentDetection (customerWindow) {
     `);
 }
 
-function addAgentPostMessageScriptToWindow (customerWindow, pendoDir) {
+function addAgentPostMessageScriptToWindow (customerWindow, host) {
     customerWindow.webContents.executeJavaScript(`
         if(!window.ipcRenderer) {
             window.ipcRenderer = require('electron').ipcRenderer;
@@ -39,7 +41,7 @@ function addAgentPostMessageScriptToWindow (customerWindow, pendoDir) {
         if (!document.getElementById(id)) {
             const agentPostmessageScript = document.createElement('script');
             agentPostmessageScript.setAttribute('id', id);
-            agentPostmessageScript.src = "${pendoDir}/build/plugin.js";
+            agentPostmessageScript.src = "${host}/designer/latest/plugin.js";
             document.body.appendChild(agentPostmessageScript);
         }
     `);
@@ -137,11 +139,29 @@ function sendMessageToBrowserWindow (browserWindow, messageObj) {
     browserWindow.webContents.send('pendo-designer-message', messageObj);
 }
 
+function getRemoteSources (cb, host) {
+    if (DEV_MODE) {
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+    }
+
+    return https.get(`https://localhost:8080/sources.js`, (response) => {
+        // Continuously update stream with data
+        var body = '';
+        response.on('data', function(d) {
+            body += d;
+        });
+        response.on('end', function() {
+            const src = new String(body, "UTF-8");
+            const result = vm.runInThisContext(m.wrap(src))(exports, require, module, __filename, __dirname);
+            cb(module.exports);
+        });
+    });
+}
+
 function initPendo (app, customerWindow) {
     customerWindow.webContents.on('did-finish-load', () => {
         addLaunchDesignerFnToWindow(customerWindow);
-        addPendoAgentDetection(customerWindow);
-
+        let sources;
         const ipcMessageBus = (event, message) => {
             switch (message.destination) {
                 case sources.designer:
@@ -160,12 +180,17 @@ function initPendo (app, customerWindow) {
         });
 
         let pendoOptions;
-        // can't start the designer until we recevie the host informaiton of the
-        // agent
+
+        // confgiure the listener before we add the logic to detect the agent
         ipcMain.once('pendo-agent-detect', (event, options) => {
             console.log('[Pendo] Detected agent', options);
             pendoOptions = options;
+            getRemoteSources((remoteSource)=> {
+                sources = remoteSource;
+            }, options.host)
         });
+
+        addPendoAgentDetection(customerWindow);
 
         ipcMain.on('pendo-start-designer', (event, options) => {
                 if (!pendoOptions) {
@@ -177,7 +202,7 @@ function initPendo (app, customerWindow) {
                 if (designerWindow) designerWindow.close();
 
                 const pendoDir = __dirname.substring(app.getAppPath().length + 1, __dirname.length);
-                addAgentPostMessageScriptToWindow(customerWindow, pendoDir);
+                addAgentPostMessageScriptToWindow(customerWindow, pendoOptions.host);
 
                 designerWindow = addDesignerToCustomerWindow(customerWindow, Object.assign({}, pendoOptions, options));
 
