@@ -108,7 +108,9 @@ function sendMessageToBrowserWindow (browserWindow, messageObj) {
 
 function initPendo (app, customerWindow) {
     customerWindow.on('close', () => {
-        designerWindow.close();
+        if (designerWindow) {
+            designerWindow.close();
+        }
     });
 
     customerWindow.webContents.on('did-finish-load', () => {
