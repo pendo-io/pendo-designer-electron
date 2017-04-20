@@ -59,7 +59,7 @@ function addDesignerToCustomerWindow(customerWindow, options) {
         designerWindowOptions.width = 1070;
     }
 
-    if (DEV_MODE && REMOTE_HOST) {
+    if (DEV_MODE && REMOTE_HOST) {``
         const {session} = require('electron');
         session.defaultSession.webRequest.onBeforeRequest(['https://*/designer/latest', 'https://*/designer/latest/*'], function (details, callback) {
             const url = details.url;
@@ -228,6 +228,9 @@ function initPendo(app, customerWindow) {
                     }
 
                     clearInterval(arePluginsLoaded);
+
+                    ipcMain.removeAllListeners('respond-pendo-host');
+
 
                 bootstrapDesigner(customerWindow, Object.assign({}, pendoOptions, message))
 
