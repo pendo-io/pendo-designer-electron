@@ -11,22 +11,28 @@ let pendoHost;
 
 function addLaunchDesignerFnsToWindow(customerWindow) {
     customerWindow.webContents.executeJavaScript(`
-        if(!window.ipcRenderer) {
-                window.ipcRenderer = require('electron').ipcRenderer;
-            }
+        if (!window.ipcRenderer) {
+            window.ipcRenderer = require('electron').ipcRenderer;
+        }
+
         window.pendo.launchDesigner = (debug) => {
-           
-            window.ipcRenderer.send('pendo-start-designer', { debug: !!debug});
-        };
-         window.ipcRenderer.on('request-pendo-host', ()=>{
-                window.ipcRenderer.send('respond-pendo-host', { host: window.pendo.HOST, version: window.pendo.VERSION,  arePluginsLoaded: !!window.pendo.DESIGNER_VERSION});
+            window.ipcRenderer.send('pendo-start-designer', {
+                debug: !!debug
             });
+        };
+        window.ipcRenderer.on('request-pendo-host', () => {
+            window.ipcRenderer.send('respond-pendo-host', {
+                host: window.pendo.HOST,
+                version: window.pendo.VERSION,
+                arePluginsLoaded: !!window.pendo.DESIGNER_VERSION
+            });
+        });
     `);
 }
 
 function addAgentPostMessageScriptToWindow(customerWindow, host) {
     customerWindow.webContents.executeJavaScript(`
-        if(!window.ipcRenderer) {
+        if (!window.ipcRenderer) {
             window.ipcRenderer = require('electron').ipcRenderer;
         }
 
@@ -36,7 +42,7 @@ function addAgentPostMessageScriptToWindow(customerWindow, host) {
             agentPostmessageScript.setAttribute('id', id);
             agentPostmessageScript.src = "${host}/designer/latest/plugin.js";
             document.body.appendChild(agentPostmessageScript);
-          }
+        }
     `);
 }
 
@@ -59,14 +65,16 @@ function addDesignerToCustomerWindow(customerWindow, options) {
         designerWindowOptions.width = 1070;
     }
 
-    if (DEV_MODE && REMOTE_HOST) {``
+    if (DEV_MODE && REMOTE_HOST) {
         const {session} = require('electron');
-        session.defaultSession.webRequest.onBeforeRequest(['https://*/designer/latest', 'https://*/designer/latest/*'], function (details, callback) {
+        session.defaultSession.webRequest.onBeforeRequest(['https://*/designer/latest', 'https://*/designer/latest/*'], function(details, callback) {
             const url = details.url;
             if (url.match(/designer\/latest/)) {
                 const substring = details.url.substring(details.url.lastIndexOf('/') + 1);
                 const redirectURL = `${REMOTE_HOST}/${substring}`;
-                return callback({redirectURL});
+                return callback({
+                    redirectURL
+                });
             }
             callback({});
         });
@@ -138,10 +146,10 @@ function getRemoteSources(cb, host) {
     return https.get(`${host}/designer/latest/sources.json`, (response) => {
         // Continuously update stream with data
         let body = '';
-        response.on('data', function (d) {
+        response.on('data', function(d) {
             body += d;
         });
-        response.on('end', function () {
+        response.on('end', function() {
             cb(JSON.parse(new String(body, "UTF-8")));
         });
     });
@@ -217,19 +225,19 @@ function initPendo(app, customerWindow) {
         ipcMain.on('pendo-start-designer', (event, options) => {
             if (designerWindow) designerWindow.close();
 
-            const arePluginsLoaded = setInterval(function () {
+            const arePluginsLoaded = setInterval(function() {
                 customerWindow.webContents.send('request-pendo-host');
             }, 100);
 
-            ipcMain.on('respond-pendo-host',  (event, message) =>{
+            ipcMain.on('respond-pendo-host', (event, message) => {
 
-                    if (!message.arePluginsLoaded) {
-                        return addAgentPostMessageScriptToWindow(customerWindow, message.host);
-                    }
+                if (!message.arePluginsLoaded) {
+                    return addAgentPostMessageScriptToWindow(customerWindow, message.host);
+                }
 
-                    clearInterval(arePluginsLoaded);
+                clearInterval(arePluginsLoaded);
 
-                    ipcMain.removeAllListeners('respond-pendo-host');
+                ipcMain.removeAllListeners('respond-pendo-host');
 
 
                 bootstrapDesigner(customerWindow, Object.assign({}, pendoOptions, message))
@@ -260,7 +268,7 @@ function initPendo(app, customerWindow) {
     });
 }
 
-exports.use = function (app) {
+exports.use = function(app) {
 
     app.on('browser-window-created', (event, browserWindow) => {
         if (browserWindow.getTitle().indexOf('Pendo') === -1) {
