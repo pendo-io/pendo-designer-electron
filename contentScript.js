@@ -7,7 +7,6 @@ const REMOTE_HOST = process.env.REMOTE_HOST;
 const MESSAGE_SOURCE_CONTENT_SCRIPT = 'pendo-designer-content-script';
 
 let designerWindow;
-let pendoHost;
 
 function addLaunchDesignerFnsToWindow(customerWindow) {
     customerWindow.webContents.executeJavaScript(`
@@ -95,7 +94,7 @@ function addDesignerToCustomerWindow(customerWindow, options) {
     return designerWindow;
 }
 
-function addLoginWindowToDesigner(designerWindow) {
+function addLoginWindowToDesigner(designerWindow, options) {
     const loginViewOptions = {
         width: 1070,
         resizable: false,
@@ -109,8 +108,8 @@ function addLoginWindowToDesigner(designerWindow) {
     };
 
     const loginWindow = new BrowserWindow(loginViewOptions);
-    const loginURL = `${pendoHost}/login`;
-    const dashboardURL = `${pendoHost}/`;
+    const loginURL = `${options.host}/login`;
+    const dashboardURL = `${options.host}/`;
 
     loginWindow.loadURL(loginURL);
     loginWindow.show();
@@ -240,7 +239,8 @@ function initPendo(app, customerWindow) {
                 ipcMain.removeAllListeners('respond-pendo-host');
 
 
-                bootstrapDesigner(customerWindow, Object.assign({}, pendoOptions, message))
+                bootstrapDesigner(customerWindow, Object.assign({}, pendoOptions, message));
+                addLoginWindowToDesigner(designerWindow, pendoOptions);
 
             });
 
@@ -249,11 +249,6 @@ function initPendo(app, customerWindow) {
                 event.returnValue = {
                     version
                 };
-            });
-
-            ipcMain.once('pendo-designer-env', (event, message) => {
-                pendoHost = message.host;
-                addLoginWindowToDesigner(designerWindow);
             });
 
             ipcMain.once('pendo-electron-app-name', (event) => {
