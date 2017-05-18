@@ -4,6 +4,7 @@ const https = require('https');
 const version = require('./package.json').version;
 const DEV_MODE = process.env.DEV_MODE;
 const REMOTE_HOST = process.env.REMOTE_HOST;
+const pendoHost = REMOTE_HOST ? REMOTE_HOST : 'https://app.pendo.io';
 const MESSAGE_SOURCE_CONTENT_SCRIPT = 'pendo-designer-content-script';
 
 let designerWindow;
@@ -14,17 +15,24 @@ function addLaunchDesignerFnsToWindow(customerWindow) {
             window.ipcRenderer = require('electron').ipcRenderer;
         }
 
-        window.pendo.launchDesigner = (debug) => {
-            window.ipcRenderer.send('pendo-start-designer', {
-                debug: !!debug
-            });
-        };
-        window.ipcRenderer.on('request-pendo-host', () => {
-            window.ipcRenderer.send('respond-pendo-host', {
-                host: window.pendo.HOST,
-                version: window.pendo.VERSION,
-                arePluginsLoaded: !!window.pendo.DESIGNER_VERSION
-            });
+        var isReadyInterval = setInterval(function() {
+            if(window.pendo && window.pendo.isReady && window.pendo.isReady()) {
+                clearInterval(isReadyInterval);
+                window.pendo.launchDesigner = (debug) => {
+                    window.ipcRenderer.send('pendo-start-designer', {
+                        debug: !!debug
+                    });
+                };
+            }
+        }, 100);
+
+
+        window.ipcRenderer.on('request-pendo', () => {
+            if(window.pendo) {
+                window.ipcRenderer.send('respond-pendo', {
+                    arePluginsLoaded: !!window.pendo.DESIGNER_VERSION
+                });
+            }
         });
     `);
 }
@@ -64,32 +72,19 @@ function addDesignerToCustomerWindow(customerWindow, options) {
         designerWindowOptions.width = 1070;
     }
 
-    if (DEV_MODE && REMOTE_HOST) {
-        const {session} = require('electron');
-        session.defaultSession.webRequest.onBeforeRequest(['https://*/designer/latest', 'https://*/designer/latest/*'], function(details, callback) {
-            const url = details.url;
-            if (url.match(/designer\/latest/)) {
-                const substring = details.url.substring(details.url.lastIndexOf('/') + 1);
-                const redirectURL = `${REMOTE_HOST}/${substring}`;
-                return callback({
-                    redirectURL
-                });
-            }
-            callback({});
-        });
-    }
-
     const designerWindow = new BrowserWindow(designerWindowOptions);
     designerWindow.webContents.on('dom-ready', () => {
         if (DEV_MODE) {
             designerWindow.webContents.executeJavaScript(`window.PENDO_MODE="dev";`);
         }
     });
+
     designerWindow.loadURL(`${options.host}/designer/latest/designer.html`);
 
     if (options.debug) {
         designerWindow.webContents.openDevTools();
     }
+
     customerWindow.setPosition(designerWindowOptions.width, customerWindow.getPosition()[1]);
     return designerWindow;
 }
@@ -190,18 +185,10 @@ function initPendo(app, customerWindow) {
     customerWindow.webContents.on('did-finish-load', () => {
         addLaunchDesignerFnsToWindow(customerWindow);
         let sources;
-        let pendoOptions;
 
-
-        customerWindow.webContents.send('request-pendo-host');
-
-        ipcMain.once('respond-pendo-host', (event, options) => {
-            pendoOptions = options;
-
-            getRemoteSources((remoteSource) => {
-                sources = remoteSource;
-            }, options.host)
-        });
+        getRemoteSources((remoteSource) => {
+            sources = remoteSource;
+        }, pendoHost)
 
         const ipcMessageBus = (event, message) => {
             switch (message.destination) {
@@ -225,25 +212,22 @@ function initPendo(app, customerWindow) {
             if (designerWindow) designerWindow.close();
 
             const arePluginsLoaded = setInterval(function() {
-                customerWindow.webContents.send('request-pendo-host');
+                customerWindow.webContents.send('request-pendo');
             }, 100);
 
-            ipcMain.on('respond-pendo-host', (event, message) => {
-
+            ipcMain.on('respond-pendo', (event, message) => {
                 if (!message.arePluginsLoaded) {
-                    return addAgentPostMessageScriptToWindow(customerWindow, message.host);
+                    return addAgentPostMessageScriptToWindow(customerWindow, pendoHost);
                 }
 
                 clearInterval(arePluginsLoaded);
 
-                ipcMain.removeAllListeners('respond-pendo-host');
+                ipcMain.removeAllListeners('respond-pendo');
 
-
-                bootstrapDesigner(customerWindow, Object.assign({}, pendoOptions, message));
-                addLoginWindowToDesigner(designerWindow, pendoOptions);
-
+                const config = Object.assign({}, options, { host: pendoHost });
+                bootstrapDesigner(customerWindow, config);
+                addLoginWindowToDesigner(designerWindow, config);
             });
-
 
             ipcMain.once('pendo-electron-version', (event) => {
                 event.returnValue = {
@@ -251,20 +235,12 @@ function initPendo(app, customerWindow) {
                 };
             });
 
-            ipcMain.once('pendo-electron-app-name', (event) => {
-                event.returnValue = app.getName();
-            });
-
             ipcMain.on('pendo-designer-message', ipcMessageBus);
-
-
         });
-
     });
 }
 
 exports.use = function(app) {
-
     app.on('browser-window-created', (event, browserWindow) => {
         if (browserWindow.getTitle().indexOf('Pendo') === -1) {
             initPendo(app, browserWindow);
@@ -273,11 +249,10 @@ exports.use = function(app) {
 
     if (DEV_MODE && REMOTE_HOST) {
         app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {
-            if (url.match(/localhost:8080/)) {
+            if (url.match(/local/) || url.match(/127\.0\.0\.1/)) {
                 event.preventDefault();
                 callback(true)
             }
         });
     }
-
 };
