@@ -51,5 +51,5 @@ You can use this function to launch the designer from any `BrowserWindow` or fro
 
 **Support**
 
-We would love to hear from you: feedback, question, bugs, you name it. [Drop us a line](https://pendo.desk.com/customer/portal/emails/new) and a human will follow up. 
+We would love to hear from you: feedback, question, bugs, you name it. [Drop us a line](mailto:help@pendo.io) and a human will follow up. 
 
