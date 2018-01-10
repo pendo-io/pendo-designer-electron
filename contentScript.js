@@ -203,12 +203,16 @@ function initPendo(app, customerWindow) {
         };
 
         ipcMain.on('pendo-login-designer', (event, options) => {
+            if (customerWindow.isDestroyed()) return;
+
             if (!designerWindow) return;
             addLoginWindowToDesigner(designerWindow);
         });
 
 
         ipcMain.on('pendo-start-designer', (event, options) => {
+            if (customerWindow.isDestroyed()) return;
+
             if (designerWindow) designerWindow.close();
 
             const arePluginsLoaded = setInterval(function() {
