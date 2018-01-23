@@ -7,10 +7,11 @@ const REMOTE_HOST = process.env.REMOTE_HOST;
 const pendoHost = REMOTE_HOST ? REMOTE_HOST : 'https://app.pendo.io';
 const MESSAGE_SOURCE_CONTENT_SCRIPT = 'pendo-designer-content-script';
 
-let designerWindow;
+const windowPairings = {};
+let sources;
 
-function addLaunchDesignerFnsToWindow(customerWindow) {
-    customerWindow.webContents.executeJavaScript(`
+function addLaunchDesignerFnsToWindow(event) {
+    event.sender.executeJavaScript(`
         if (!window.ipcRenderer) {
             window.ipcRenderer = require('electron').ipcRenderer;
         }
@@ -26,7 +27,6 @@ function addLaunchDesignerFnsToWindow(customerWindow) {
             }
         }, 100);
 
-
         window.ipcRenderer.on('request-pendo', () => {
             if(window.pendo) {
                 window.ipcRenderer.send('respond-pendo', {
@@ -38,7 +38,7 @@ function addLaunchDesignerFnsToWindow(customerWindow) {
 }
 
 function addAgentPostMessageScriptToWindow(customerWindow, host) {
-    customerWindow.webContents.executeJavaScript(`
+    customerWindow.sender.executeJavaScript(`
         if (!window.ipcRenderer) {
             window.ipcRenderer = require('electron').ipcRenderer;
         }
@@ -128,8 +128,8 @@ function addLoginWindowToDesigner(designerWindow, options) {
     });
 }
 
-function sendMessageToBrowserWindow(browserWindow, messageObj) {
-    browserWindow.webContents.send('pendo-designer-message', messageObj);
+function sendMessageToBrowserWindow(destinationWebContents, messageObj) {
+    destinationWebContents.send('pendo-designer-message', messageObj);
 }
 
 function getRemoteSources(cb, host) {
@@ -140,113 +140,147 @@ function getRemoteSources(cb, host) {
     return https.get(`${host}/designer/latest/sources.json`, (response) => {
         // Continuously update stream with data
         let body = '';
-        response.on('data', function(d) {
+        response.on('data', function (d) {
             body += d;
         });
-        response.on('end', function() {
+        response.on('end', function () {
             cb(JSON.parse(new String(body, "UTF-8")));
         });
     });
 }
 
-
-function putWindowIntoDesignerMode(window) {
+function putWindowIntoDesignerMode(event) {
     // put agent into designer mode
-    sendMessageToBrowserWindow(window, {
+    sendMessageToBrowserWindow(event.sender, {
         type: 'connect',
         source: MESSAGE_SOURCE_CONTENT_SCRIPT,
         destination: 'pendo-designer-agent'
     });
 }
 
-function unloadDesignerFromWindow() {
-    sendMessageToBrowserWindow(designerWindow, {
+function unloadDesignerFromWindow(event) {
+    sendMessageToBrowserWindow(event.sender, {
         type: 'unload',
         source: MESSAGE_SOURCE_CONTENT_SCRIPT,
         destination: 'pendo-designer'
     });
 }
 
+function bootstrapDesigner(event, options) {
+    const windowPairing = windowPairings[event.sender];
+    const designerWindow = addDesignerToCustomerWindow(windowPairing.customerWindow, options);
+    windowPairing.designerWindow = designerWindow;
 
-function bootstrapDesigner(customerWindow, options) {
-    designerWindow = addDesignerToCustomerWindow(customerWindow, options);
-
-    putWindowIntoDesignerMode(customerWindow);
+    putWindowIntoDesignerMode(event);
 
     designerWindow.on('close', unloadDesignerFromWindow);
 
     designerWindow.on('closed', () => {
-        designerWindow = null;
-        ipcMain.removeAllListeners('pendo-designer-message');
+        delete windowPairing.designerWindow;
     });
+
+    return designerWindow;
 }
 
-function initPendo(app, customerWindow) {
-    customerWindow.webContents.on('did-finish-load', () => {
-        addLaunchDesignerFnsToWindow(customerWindow);
-        let sources;
+function pendoLoginDesigner(event, options) {
+    addLoginWindowToDesigner(event);
+}
 
-        getRemoteSources((remoteSource) => {
-            sources = remoteSource;
-        }, pendoHost)
+function pendoStartDesigner(event, options) {
+    const arePluginsLoaded = setInterval(function () {
+        event.sender.send('request-pendo');
+    }, 100);
 
-        const ipcMessageBus = (event, message) => {
-            switch (message.destination) {
-                case sources.designer:
-                    if (!designerWindow) return console.warn('Designer window does not exist');
-                    sendMessageToBrowserWindow(designerWindow, message);
-                    break;
-                case sources.plugin:
-                case sources.agent:
-                    sendMessageToBrowserWindow(customerWindow, message);
-            }
-        };
+    const respondPendo = (event, message) => {
+        if (!message.arePluginsLoaded) {
+            return addAgentPostMessageScriptToWindow(event, pendoHost);
+        }
 
-        ipcMain.on('pendo-login-designer', (event, options) => {
-            if (customerWindow.isDestroyed()) return;
+        clearInterval(arePluginsLoaded);
 
-            if (!designerWindow) return;
-            addLoginWindowToDesigner(designerWindow);
-        });
+        ipcMain.removeListener('respond-pendo', respondPendo);
 
+        const config = Object.assign({}, options, {host: pendoHost});
+        const designerWindow = bootstrapDesigner(event, config);
+        addLoginWindowToDesigner(designerWindow, config);
+    };
 
-        ipcMain.on('pendo-start-designer', (event, options) => {
-            if (customerWindow.isDestroyed()) return;
+    ipcMain.on('respond-pendo', respondPendo);
 
-            if (designerWindow) designerWindow.close();
+    ipcMain.on('pendo-designer-message', ipcMessageBus);
+}
 
-            const arePluginsLoaded = setInterval(function() {
-                customerWindow.webContents.send('request-pendo');
-            }, 100);
+function ipcMessageBus(event, message) {
+    switch (message.destination) {
+        case sources.designer:
+            const {designerWindow} = windowPairings[event.sender];
+            if (!designerWindow) return console.warn('Designer window does not exist');
 
-            ipcMain.on('respond-pendo', (event, message) => {
-                if (!message.arePluginsLoaded) {
-                    return addAgentPostMessageScriptToWindow(customerWindow, pendoHost);
+            sendMessageToBrowserWindow(designerWindow.webContents, message);
+            break;
+        case sources.plugin:
+        case sources.agent:
+            const {customerWindow} = Object.values(windowPairings).find(windowPairing => {
+                if (windowPairing.designerWindow) {
+                    return windowPairing.designerWindow.webContents === event.sender
                 }
-
-                clearInterval(arePluginsLoaded);
-
-                ipcMain.removeAllListeners('respond-pendo');
-
-                const config = Object.assign({}, options, { host: pendoHost });
-                bootstrapDesigner(customerWindow, config);
-                addLoginWindowToDesigner(designerWindow, config);
             });
 
-            ipcMain.once('pendo-electron-version', (event) => {
-                event.returnValue = {
-                    version
-                };
-            });
+            if (!customerWindow) return console.warn('Customer window does not exist');
+            sendMessageToBrowserWindow(customerWindow.webContents, message);
+    }
+}
 
-            ipcMain.on('pendo-designer-message', ipcMessageBus);
-        });
+function initPendo(app, browserWindow) {
+    windowPairings[browserWindow.webContents] = {
+        customerWindow: browserWindow
+    };
+
+    browserWindow.webContents.on('did-finish-load', (event) => {
+        addLaunchDesignerFnsToWindow(event);
+
+        ipcMain.on('pendo-start-designer', pendoStartDesigner);
+
+        ipcMain.on('pendo-login-designer', pendoLoginDesigner);
     });
 }
 
-exports.use = function(app) {
+function canInit(browserWindow, options = {}) {
+    const {restricted, browserTitles, ignoreFramelessWindows} = options;
+
+    const isNotPendoWindow = browserWindow.getTitle().indexOf('Pendo') === -1;
+    const isNotFrameless = ignoreFramelessWindows && browserWindow.webContents.browserWindowOptions.frame !== false;
+    const isPendoEnabled = restricted ? browserWindow.webContents.browserWindowOptions.pendoDesignerEnabled : true;
+
+    let isValidBrowserWindowTitle = true;
+
+    if (browserTitles) {
+        isValidBrowserWindowTitle = browserTitles.includes(browserWindow.getTitle());
+    }
+
+    return isNotPendoWindow && isNotFrameless && isValidBrowserWindowTitle && isPendoEnabled;
+}
+
+
+function startUp() {
+    getRemoteSources((remoteSource) => {
+        sources = remoteSource;
+    }, pendoHost);
+
+
+    ipcMain.once('pendo-electron-version', (event) => {
+        event.returnValue = {
+            version
+        };
+    });
+}
+
+exports.use = function (app, options) {
+
+    startUp();
+
     app.on('browser-window-created', (event, browserWindow) => {
-        if (browserWindow.getTitle().indexOf('Pendo') === -1) {
+        if (canInit(browserWindow, options)) {
             initPendo(app, browserWindow);
         }
     });
