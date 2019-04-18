@@ -1,4 +1,5 @@
 ## Pendo Designer for Electron Apps ##
+### _**Deprecated**_ unless NOT using Visual Design Studio (P2)! ###
 ### Overview ###
  This NPM module for electron will allow you to set up Pendo for tagging pages and features in your app. It will also allow you to author Pendo guides for your application.  This module is only needed for the setup process. It is not needed for your end users, so it can be installed in just a Dev instance of your application if you wish.
 
