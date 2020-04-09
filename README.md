@@ -1,3 +1,5 @@
+# Deprecated! Use: https://github.com/pendo-io/pendo-electron-quick-start ##
+
 ## Pendo Designer for Electron Apps ##
 ### _**Deprecated**_ unless NOT using Visual Design Studio (P2)! ###
 ### Overview ###
